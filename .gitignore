@@ -47,7 +47,7 @@ jspm_packages/
 .env
 
 # Uploads directory (optional - you might want to track this)
-uploads
+
 
 # IDE files
 .vscode/
