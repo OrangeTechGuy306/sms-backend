@@ -36,6 +36,7 @@ const libraryRoutes = require('./src/routes/library');
 const parentRoutes = require('./src/routes/parents');
 
 const app = express();
+// Server configuration
 const PORT = process.env.PORT || 5000;
 
 // Security middleware

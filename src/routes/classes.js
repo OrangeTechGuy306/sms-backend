@@ -171,7 +171,7 @@ router.get('/:id/students', [
         u.email
       FROM students s
       JOIN users u ON s.user_id = u.id
-      WHERE s.current_class_id = ? AND s.status = 'active'
+      WHERE s.class_id = ? AND s.status = 'active'
       ORDER BY s.first_name, s.last_name
     `;
 
@@ -227,7 +227,7 @@ router.post('/:id/students', [
 
     // Update students' current class
     const queries = studentIds.map(studentId => ({
-      query: 'UPDATE students SET current_class_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      query: 'UPDATE students SET class_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       params: [id, studentId]
     }));
 
@@ -269,7 +269,7 @@ router.delete('/:id/students/:studentId', [
 
     // Check if student is in the class
     const studentInClass = await executeQuery(
-      'SELECT id FROM students WHERE id = ? AND current_class_id = ?',
+      'SELECT id FROM students WHERE id = ? AND class_id = ?',
       [studentId, id]
     );
 
@@ -280,9 +280,9 @@ router.delete('/:id/students/:studentId', [
       });
     }
 
-    // Remove student from class (set current_class_id to NULL)
+    // Remove student from class (set class_id to NULL)
     await executeQuery(
-      'UPDATE students SET current_class_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE students SET class_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [studentId]
     );
 

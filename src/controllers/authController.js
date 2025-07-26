@@ -207,8 +207,9 @@ async function getProfile(req, res) {
 
     // Get user basic info
     const userQuery = `
-      SELECT id, email, user_type, status, last_login, created_at
-      FROM users 
+      SELECT id, email, user_type, first_name, last_name, phone, date_of_birth,
+             gender, address, profile_picture, status, last_login, created_at
+      FROM users
       WHERE id = ?
     `;
     
@@ -274,7 +275,19 @@ async function getProfile(req, res) {
     res.json({
       success: true,
       data: {
-        user,
+        id: user.id,
+        email: user.email,
+        first_name: user.first_name || profile?.first_name || '',
+        last_name: user.last_name || profile?.last_name || '',
+        user_type: user.user_type,
+        phone: user.phone || profile?.phone || '',
+        date_of_birth: user.date_of_birth || profile?.date_of_birth || '',
+        gender: user.gender || profile?.gender || '',
+        address: user.address || profile?.address || '',
+        profile_picture: user.profile_picture || profile?.profile_picture || '',
+        status: user.status,
+        last_login: user.last_login,
+        created_at: user.created_at,
         profile
       }
     });

@@ -1037,17 +1037,17 @@ async function getStudents(req, res) {
     let queryParams = [];
 
     if (search) {
-      whereConditions.push('(s.first_name LIKE ? OR s.last_name LIKE ? OR s.student_id LIKE ? OR s.email LIKE ?)');
+      whereConditions.push('(u.first_name LIKE ? OR u.last_name LIKE ? OR s.student_id LIKE ? OR u.email LIKE ?)');
       queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
     }
 
     if (class_id && isValidUUID(class_id)) {
-      whereConditions.push('s.current_class_id = ?');
+      whereConditions.push('s.class_id = ?');
       queryParams.push(class_id);
     }
 
     if (grade_level_id && isValidUUID(grade_level_id)) {
-      whereConditions.push('c.grade_level_id = ?');
+      whereConditions.push('c.grade_level = ?');
       queryParams.push(grade_level_id);
     }
 
@@ -1056,9 +1056,19 @@ async function getStudents(req, res) {
       queryParams.push(status);
     }
 
-    // Validate sort parameters
-    const allowedSortFields = ['first_name', 'last_name', 'student_id', 'admission_date', 'created_at'];
-    const sortField = allowedSortFields.includes(sort_by) ? sort_by : 'first_name';
+    // Validate sort parameters and map to correct table columns
+    const sortFieldMapping = {
+      'first_name': 'u.first_name',
+      'last_name': 'u.last_name',
+      'student_id': 's.student_id',
+      'admission_date': 's.admission_date',
+      'created_at': 's.created_at',
+      'email': 'u.email'
+    };
+
+    const allowedSortFields = Object.keys(sortFieldMapping);
+    const sortFieldKey = allowedSortFields.includes(sort_by) ? sort_by : 'first_name';
+    const sortField = sortFieldMapping[sortFieldKey];
     const sortDirection = sort_order.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
     const whereClause = whereConditions.join(' AND ');
@@ -1068,8 +1078,8 @@ async function getStudents(req, res) {
       SELECT COUNT(*) as total
       FROM students s
       LEFT JOIN users u ON s.user_id = u.id
-      LEFT JOIN classes c ON s.current_class_id = c.id
-      LEFT JOIN grade_levels gl ON c.grade_level_id = gl.id
+      LEFT JOIN classes c ON s.class_id = c.id
+      LEFT JOIN grade_levels gl ON c.grade_level = gl.name
       WHERE ${whereClause}
     `;
 
@@ -1078,36 +1088,44 @@ async function getStudents(req, res) {
 
     // Get students
     const studentsQuery = `
-      SELECT 
+      SELECT
         s.id,
         s.student_id,
-        s.first_name,
-        s.last_name,
-        s.middle_name,
-        s.date_of_birth,
-        s.gender,
-        s.phone,
-        s.address,
+        u.first_name,
+        u.last_name,
+        u.date_of_birth,
+        u.gender,
+        u.phone,
+        u.address,
         s.admission_date,
-        s.passport_photo,
+        s.admission_number,
+        s.roll_number,
+        s.blood_group,
+        s.nationality,
+        s.religion,
+        s.medical_conditions,
+        s.emergency_contact_name,
+        s.emergency_contact_phone,
         s.status,
         s.created_at,
         u.email,
+        u.profile_picture as passport_photo,
         c.name as class_name,
         gl.name as grade_level,
         ay.name as academic_year,
-        CONCAT(s.first_name, ' ', s.last_name) as full_name
+        CONCAT(u.first_name, ' ', u.last_name) as full_name
       FROM students s
       LEFT JOIN users u ON s.user_id = u.id
-      LEFT JOIN classes c ON s.current_class_id = c.id
-      LEFT JOIN grade_levels gl ON c.grade_level_id = gl.id
-      LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
+      LEFT JOIN classes c ON s.class_id = c.id
+      LEFT JOIN grade_levels gl ON c.grade_level = gl.name
+      LEFT JOIN academic_years ay ON c.academic_year_id = ay.id
       WHERE ${whereClause}
-      ORDER BY s.${sortField} ${sortDirection}
-      LIMIT ? OFFSET ?
+      ORDER BY ${sortField} ${sortDirection}
+      LIMIT ${parseInt(limit)} OFFSET ${offset}
     `;
 
-    const students = await executeQuery(studentsQuery, [...queryParams, parseInt(limit), offset]);
+    // Execute the students query with fixed LIMIT syntax
+    const students = await executeQuery(studentsQuery, queryParams);
 
     // Calculate pagination info
     const totalPages = Math.ceil(total / parseInt(limit));
@@ -1153,20 +1171,27 @@ async function getStudentById(req, res) {
     }
 
     const studentQuery = `
-      SELECT 
+      SELECT
         s.*,
+        u.first_name,
+        u.last_name,
+        u.date_of_birth,
+        u.gender,
+        u.phone,
+        u.address,
         u.email,
+        u.profile_picture,
         u.status as user_status,
         u.last_login,
         c.name as class_name,
         gl.name as grade_level,
         ay.name as academic_year,
-        CONCAT(s.first_name, ' ', s.last_name) as full_name
+        CONCAT(u.first_name, ' ', u.last_name) as full_name
       FROM students s
       LEFT JOIN users u ON s.user_id = u.id
-      LEFT JOIN classes c ON s.current_class_id = c.id
-      LEFT JOIN grade_levels gl ON c.grade_level_id = gl.id
-      LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
+      LEFT JOIN classes c ON s.class_id = c.id
+      LEFT JOIN grade_levels gl ON c.grade_level = gl.name
+      LEFT JOIN academic_years ay ON c.academic_year_id = ay.id
       WHERE s.id = ?
     `;
 
@@ -1247,7 +1272,7 @@ async function createStudent(req, res) {
       emergency_contact_relationship: emergencyContactRelationship = '',
       admission_date: admissionDate,
       admission_number: admissionNumber = '',
-      current_class_id: currentClassId,
+      class_id: currentClassId,
       academic_year_id: academicYearId,
       medical_conditions: medicalConditions = '',
       allergies = '',
@@ -1260,7 +1285,7 @@ async function createStudent(req, res) {
     if (!firstName || !lastName || !dateOfBirth || !gender || !admissionDate || !currentClassId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: first_name, last_name, date_of_birth, gender, admission_date, current_class_id'
+        message: 'Missing required fields: first_name, last_name, date_of_birth, gender, admission_date, class_id'
       });
     }
 
@@ -1332,15 +1357,15 @@ async function createStudent(req, res) {
           user_id, student_id, first_name, last_name, middle_name, date_of_birth, gender,
           blood_group, nationality, religion, address, phone, emergency_contact_name,
           emergency_contact_phone, emergency_contact_relationship, admission_date,
-          admission_number, current_class_id, academic_year_id, medical_conditions, allergies
+          admission_number, class_id, medical_conditions, allergies
         ) VALUES (
-          LAST_INSERT_ID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          LAST_INSERT_ID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )`,
         params: [
           finalStudentId, firstName, lastName, middleName, dateOfBirth, gender,
           bloodGroup, nationality, religion, address, phone, emergencyContactName,
           emergencyContactPhone, emergencyContactRelationship, admissionDate,
-          admissionNumber, currentClassId, finalAcademicYearId, medicalConditions, allergies
+          admissionNumber, currentClassId, medicalConditions, allergies
         ]
       }
     ];
@@ -1422,7 +1447,7 @@ async function updateStudent(req, res) {
       'first_name', 'last_name', 'middle_name', 'date_of_birth', 'gender',
       'blood_group', 'nationality', 'religion', 'address', 'phone',
       'emergency_contact_name', 'emergency_contact_phone', 'emergency_contact_relationship',
-      'current_class_id', 'passport_photo', 'medical_conditions', 'allergies', 'status'
+      'class_id', 'passport_photo', 'medical_conditions', 'allergies', 'status'
     ];
 
     const updateFields = Object.keys(updates)

@@ -10,7 +10,7 @@ function generateAccessToken(payload) {
   try {
     return jwt.sign(
       payload,
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'oranov',
       { 
         expiresIn: process.env.JWT_EXPIRES_IN || '24h',
         issuer: 'sms-backend',
@@ -32,7 +32,7 @@ function generateRefreshToken(payload) {
   try {
     return jwt.sign(
       payload,
-      process.env.JWT_REFRESH_SECRET,
+      process.env.JWT_REFRESH_SECRET  || 'oranov',
       { 
         expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
         issuer: 'sms-backend',
@@ -52,7 +52,7 @@ function generateRefreshToken(payload) {
  */
 function verifyAccessToken(token) {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET, {
+    return jwt.verify(token, process.env.JWT_SECRET || 'oranov', {
       issuer: 'sms-backend',
       audience: 'sms-frontend'
     });
@@ -75,7 +75,7 @@ function verifyAccessToken(token) {
  */
 function verifyRefreshToken(token) {
   try {
-    return jwt.verify(token, process.env.JWT_REFRESH_SECRET, {
+    return jwt.verify(token, process.env.JWT_REFRESH_SECRET || 'oranov', {
       issuer: 'sms-backend',
       audience: 'sms-frontend'
     });

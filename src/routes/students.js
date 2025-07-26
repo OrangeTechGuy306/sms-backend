@@ -449,7 +449,7 @@ router.post('/bulk', [
             INSERT INTO students (
               id, user_id, student_id, first_name, last_name, middle_name,
               date_of_birth, gender, blood_group, nationality, religion,
-              current_class_id, admission_date, status, created_at, updated_at
+              class_id, admission_date, status, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active', NOW(), NOW())
           `, [
             studentId,
@@ -648,9 +648,9 @@ router.get('/class/:classId', [
         s.updated_at
       FROM students s
       JOIN users u ON s.user_id = u.id
-      JOIN classes c ON s.current_class_id = c.id
+      JOIN classes c ON s.class_id = c.id
       LEFT JOIN grade_levels gl ON c.grade_level_id = gl.id
-      WHERE s.current_class_id = ?
+      WHERE s.class_id = ?
         AND s.status = ?
         ${searchCondition}
       ORDER BY ${sort_by} ${sort_order}
@@ -665,7 +665,7 @@ router.get('/class/:classId', [
       SELECT COUNT(*) as total
       FROM students s
       JOIN users u ON s.user_id = u.id
-      WHERE s.current_class_id = ?
+      WHERE s.class_id = ?
         AND s.status = ?
         ${searchCondition}
     `;
