@@ -12,8 +12,8 @@ yarn-error.log*
 .env.production.local
 
 # Logs
-logs
-*.log
+# logs
+# *.log
 
 # Runtime data
 pids
@@ -47,7 +47,7 @@ jspm_packages/
 .env
 
 # Uploads directory (optional - you might want to track this)
-uploads/
+# uploads/
 
 # IDE files
 .vscode/
