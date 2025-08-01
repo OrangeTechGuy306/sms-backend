@@ -1,37 +1,52 @@
 const mysql = require('mysql2/promise');
 const logger = require('../utils/logger');
 
+// Ensure environment variables are loaded
+require('dotenv').config();
+
 let pool;
 
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
+  port: parseInt(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'root',
   database: process.env.DB_NAME || 'school_management_system',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true,
   charset: 'utf8mb4',
   timezone: '+00:00'
 };
 
 async function connectDatabase() {
   try {
+    logger.info('Attempting to connect to database with config:', {
+      host: dbConfig.host,
+      port: dbConfig.port,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      password: dbConfig.password ? '[HIDDEN]' : '[EMPTY]'
+    });
+
     pool = mysql.createPool(dbConfig);
-    
+
     // Test the connection
     const connection = await pool.getConnection();
     await connection.ping();
     connection.release();
-    
+
     logger.info('Database connection pool created successfully');
     return pool;
   } catch (error) {
     logger.error('Database connection failed:', error);
+    logger.error('Database config used:', {
+      host: dbConfig.host,
+      port: dbConfig.port,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      password: dbConfig.password ? '[HIDDEN]' : '[EMPTY]'
+    });
     throw error;
   }
 }

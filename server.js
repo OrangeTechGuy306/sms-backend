@@ -34,6 +34,8 @@ const transportationRoutes = require('./src/routes/transportation');
 const assessmentRoutes = require('./src/routes/assessments');
 const libraryRoutes = require('./src/routes/library');
 const parentRoutes = require('./src/routes/parents');
+const gradeLevelRoutes = require('./src/routes/gradeLevels');
+const academicYearRoutes = require('./src/routes/academicYears');
 
 const app = express();
 // Server configuration
@@ -114,6 +116,8 @@ app.use('/api/transportation', transportationRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/library', libraryRoutes);
 app.use('/api/parents', parentRoutes);
+app.use('/api/grade-levels', gradeLevelRoutes);
+app.use('/api/academic-years', academicYearRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

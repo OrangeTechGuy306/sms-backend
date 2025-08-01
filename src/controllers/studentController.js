@@ -1163,7 +1163,14 @@ async function getStudentById(req, res) {
   try {
     const { id } = req.params;
 
-    if (!isValidUUID(id)) {
+    logger.info(`Getting student by ID: ${id}`);
+
+    // Validate ID format (accept both UUID and integer)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isInteger = /^\d+$/.test(id);
+
+    if (!isUUID && !isInteger) {
+      logger.warn(`Invalid student ID format: ${id}`);
       return res.status(400).json({
         success: false,
         message: 'Invalid student ID format'
@@ -1184,20 +1191,21 @@ async function getStudentById(req, res) {
         u.status as user_status,
         u.last_login,
         c.name as class_name,
-        gl.name as grade_level,
+        c.grade_level,
         ay.name as academic_year,
         CONCAT(u.first_name, ' ', u.last_name) as full_name
       FROM students s
       LEFT JOIN users u ON s.user_id = u.id
       LEFT JOIN classes c ON s.class_id = c.id
-      LEFT JOIN grade_levels gl ON c.grade_level = gl.name
       LEFT JOIN academic_years ay ON c.academic_year_id = ay.id
       WHERE s.id = ?
     `;
 
+    logger.info(`Executing student query for ID: ${id}`);
     const students = await executeQuery(studentQuery, [id]);
 
     if (students.length === 0) {
+      logger.warn(`Student not found with ID: ${id}`);
       return res.status(404).json({
         success: false,
         message: 'Student not found'
@@ -1205,31 +1213,37 @@ async function getStudentById(req, res) {
     }
 
     const student = students[0];
+    logger.info(`Found student: ${student.first_name} ${student.last_name} (ID: ${student.id})`);
 
     // Get parent information
+    logger.info(`Getting parent information for student ID: ${id}`);
     const parentsQuery = `
-      SELECT 
+      SELECT
         p.id,
-        p.first_name,
-        p.last_name,
-        p.relationship,
-        p.phone,
-        p.work_phone,
+        u.first_name,
+        u.last_name,
+        sp.relationship,
+        u.phone,
+        p.office_phone as work_phone,
         p.occupation,
-        p.address,
-        sp.is_primary,
+        u.address,
+        sp.is_primary_contact as is_primary,
         u.email
       FROM parents p
       JOIN student_parents sp ON p.id = sp.parent_id
       JOIN users u ON p.user_id = u.id
       WHERE sp.student_id = ?
-      ORDER BY sp.is_primary DESC
+      ORDER BY sp.is_primary_contact DESC
     `;
 
     const parents = await executeQuery(parentsQuery, [id]);
+    logger.info(`Found ${parents.length} parent(s) for student ID: ${id}`);
+
+    logger.info(`Successfully retrieved student data for ID: ${id}`);
 
     res.json({
       success: true,
+      message: 'Student retrieved successfully',
       data: {
         student,
         parents
@@ -1238,9 +1252,16 @@ async function getStudentById(req, res) {
 
   } catch (error) {
     logger.error('Get student by ID error:', error);
+    logger.error('Error details:', {
+      studentId: req.params.id,
+      error: error.message,
+      stack: error.stack
+    });
+
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve student'
+      message: 'Failed to retrieve student',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 }
@@ -1250,42 +1271,50 @@ async function getStudentById(req, res) {
  */
 async function createStudent(req, res) {
   try {
+    // Validate that res is a proper Express response object
+    if (!res || typeof res.status !== 'function') {
+      logger.error('Invalid response object passed to createStudent');
+      throw new Error('Invalid response object');
+    }
+
     const studentData = sanitizeInput(req.body);
+    logger.info('Received student data:', studentData);
+    logger.info('Available fields:', Object.keys(studentData));
     
     const {
       email,
-      first_name: firstName,
-      last_name: lastName,
-      middle_name: middleName = '',
-      date_of_birth: dateOfBirth,
+      firstName,
+      lastName,
+      middleName = '',
+      dateOfBirth,
       gender,
-      blood_group: bloodGroup = '',
+      bloodGroup = '',
       nationality = '',
       religion = '',
       address = '',
       phone = '',
-      guardian_name: guardianName = '',
-      guardian_phone: guardianPhone = '',
-      guardian_email: guardianEmail = '',
-      emergency_contact_name: emergencyContactName = '',
-      emergency_contact_phone: emergencyContactPhone = '',
-      emergency_contact_relationship: emergencyContactRelationship = '',
-      admission_date: admissionDate,
-      admission_number: admissionNumber = '',
-      class_id: currentClassId,
-      academic_year_id: academicYearId,
-      medical_conditions: medicalConditions = '',
+      guardianName = '',
+      guardianPhone = '',
+      guardianEmail = '',
+      emergencyContactName = '',
+      emergencyContactPhone = '',
+      emergencyContactRelationship = '',
+      admissionDate,
+      admissionNumber = '',
+      currentClassId,
+      academicYearId,
+      medicalConditions = '',
       allergies = '',
       generatePassword = true,
       password = '',
-      student_id: studentId
+      studentId
     } = studentData;
 
     // Validate required fields
     if (!firstName || !lastName || !dateOfBirth || !gender || !admissionDate || !currentClassId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: first_name, last_name, date_of_birth, gender, admission_date, class_id'
+        message: 'Missing required fields: firstName, lastName, dateOfBirth, gender, admissionDate, currentClassId'
       });
     }
 
@@ -1307,13 +1336,15 @@ async function createStudent(req, res) {
       }
     }
 
-    // Check if email already exists
-    const existingUser = await executeQuery('SELECT id FROM users WHERE email = ?', [email]);
-    if (existingUser.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already exists'
-      });
+    // Check if email already exists (only if email is provided)
+    if (email && email.trim()) {
+      const existingUser = await executeQuery('SELECT id FROM users WHERE email = ?', [email]);
+      if (existingUser.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already exists'
+        });
+      }
     }
 
     // Generate student ID if not provided
@@ -1346,26 +1377,38 @@ async function createStudent(req, res) {
     const hashedPassword = await hashPassword(finalPassword);
     const userUuid = uuidv4();
 
+    // Generate email if not provided
+    const finalEmail = email && email.trim() ? email : `${finalStudentId.toLowerCase()}@school.local`;
+
     // Create user and student in transaction
+    logger.info('About to execute transaction with data:', {
+      userUuid,
+      finalEmail,
+      firstName,
+      lastName,
+      dateOfBirth,
+      gender,
+      finalStudentId,
+      currentClassId
+    });
+
     const queries = [
       {
         query: `INSERT INTO users (uuid, email, password_hash, user_type, first_name, last_name, date_of_birth, gender, phone, address, status, email_verified) VALUES (?, ?, ?, 'student', ?, ?, ?, ?, ?, ?, 'active', TRUE)`,
-        params: [userUuid, email, hashedPassword, firstName, lastName, dateOfBirth, gender, phone, address]
+        params: [userUuid, finalEmail, hashedPassword, firstName, lastName, dateOfBirth, gender, phone, address]
       },
       {
         query: `INSERT INTO students (
-          user_id, student_id, first_name, last_name, middle_name, date_of_birth, gender,
-          blood_group, nationality, religion, address, phone, emergency_contact_name,
-          emergency_contact_phone, emergency_contact_relationship, admission_date,
-          admission_number, class_id, medical_conditions, allergies
+          user_id, student_id, class_id, admission_number, admission_date,
+          blood_group, nationality, religion, medical_conditions,
+          emergency_contact_name, emergency_contact_phone, emergency_contact_relation
         ) VALUES (
-          LAST_INSERT_ID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          LAST_INSERT_ID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )`,
         params: [
-          finalStudentId, firstName, lastName, middleName, dateOfBirth, gender,
-          bloodGroup, nationality, religion, address, phone, emergencyContactName,
-          emergencyContactPhone, emergencyContactRelationship, admissionDate,
-          admissionNumber, currentClassId, medicalConditions, allergies
+          finalStudentId, currentClassId, admissionNumber, admissionDate,
+          bloodGroup, nationality, religion, medicalConditions,
+          emergencyContactName, emergencyContactPhone, emergencyContactRelationship
         ]
       }
     ];
@@ -1374,7 +1417,6 @@ async function createStudent(req, res) {
 
     // Get the created student
     const newStudent = await executeQuery('SELECT id FROM students WHERE student_id = ?', [finalStudentId]);
-    const studentRecord = await getStudentById({ params: { id: newStudent[0].id } }, { json: () => {} });
 
     logger.info(`Student created: ${finalStudentId} by user ${req.user.id}`);
 
@@ -1389,7 +1431,20 @@ async function createStudent(req, res) {
 
   } catch (error) {
     logger.error('Create student error:', error);
-    
+    logger.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+      sql: error.sql
+    });
+
+    // Check if res is still a valid response object
+    if (!res || typeof res.status !== 'function') {
+      logger.error('Response object is invalid in error handler');
+      return;
+    }
+
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
         success: false,
@@ -1397,9 +1452,24 @@ async function createStudent(req, res) {
       });
     }
 
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(500).json({
+        success: false,
+        message: 'Database table not found. Please contact administrator.'
+      });
+    }
+
+    if (error.code === 'ER_BAD_FIELD_ERROR') {
+      return res.status(500).json({
+        success: false,
+        message: 'Database field error. Please contact administrator.'
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Failed to create student'
+      message: 'Failed to create student',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 }
@@ -1412,7 +1482,11 @@ async function updateStudent(req, res) {
     const { id } = req.params;
     const updates = sanitizeInput(req.body);
 
-    if (!isValidUUID(id)) {
+    // Validate ID format (accept both UUID and integer)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isInteger = /^\d+$/.test(id);
+
+    if (!isUUID && !isInteger) {
       return res.status(400).json({
         success: false,
         message: 'Invalid student ID format'
@@ -1499,7 +1573,11 @@ async function deleteStudent(req, res) {
   try {
     const { id } = req.params;
 
-    if (!isValidUUID(id)) {
+    // Validate ID format (accept both UUID and integer)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isInteger = /^\d+$/.test(id);
+
+    if (!isUUID && !isInteger) {
       return res.status(400).json({
         success: false,
         message: 'Invalid student ID format'
@@ -1507,8 +1585,10 @@ async function deleteStudent(req, res) {
     }
 
     // Check if student exists and get user_id
+    logger.info(`Checking if student exists with ID: ${id}`);
     const existingStudent = await executeQuery('SELECT user_id, student_id FROM students WHERE id = ?', [id]);
     if (existingStudent.length === 0) {
+      logger.warn(`Student not found with ID: ${id}`);
       return res.status(404).json({
         success: false,
         message: 'Student not found'
@@ -1516,33 +1596,30 @@ async function deleteStudent(req, res) {
     }
 
     const { user_id, student_id } = existingStudent[0];
+    logger.info(`Found student: ${student_id}, user_id: ${user_id}`);
 
-    // Check for dependencies (results, attendance, etc.)
-    const dependencyChecks = [
-      { table: 'student_results', message: 'Student has academic results' },
-      { table: 'attendance', message: 'Student has attendance records' },
-      { table: 'student_fees', message: 'Student has fee records' }
-    ];
+    // Skip dependency checks for now - let foreign key constraints handle it
+    logger.info(`Proceeding with deletion for student ID: ${id}`);
 
-    for (const check of dependencyChecks) {
-      const result = await executeQuery(`SELECT COUNT(*) as count FROM ${check.table} WHERE student_id = ?`, [id]);
-      if (result[0].count > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot delete student: ${check.message}`
-        });
-      }
+    // Delete user first - this will cascade delete the student due to foreign key constraint
+    logger.info(`Starting deletion for student ${student_id} (ID: ${id}) and user ${user_id}`);
+
+    try {
+      // Try deleting just the user first - the student should be cascade deleted
+      await executeQuery('DELETE FROM users WHERE id = ?', [user_id]);
+      logger.info(`User ${user_id} deleted successfully`);
+    } catch (userDeleteError) {
+      logger.warn(`Failed to delete user, trying to delete student first:`, userDeleteError.message);
+
+      // Fallback: delete student first, then user
+      await executeQuery('DELETE FROM students WHERE id = ?', [id]);
+      logger.info(`Student ${id} deleted successfully`);
+
+      await executeQuery('DELETE FROM users WHERE id = ?', [user_id]);
+      logger.info(`User ${user_id} deleted successfully`);
     }
 
-    // Delete student and user in transaction
-    const queries = [
-      { query: 'DELETE FROM students WHERE id = ?', params: [id] },
-      { query: 'DELETE FROM users WHERE id = ?', params: [user_id] }
-    ];
-
-    await executeTransaction(queries);
-
-    logger.info(`Student deleted: ${student_id} by user ${req.user.id}`);
+    logger.info(`Student deleted successfully: ${student_id} by user ${req.user.id}`);
 
     res.json({
       success: true,
@@ -1550,8 +1627,13 @@ async function deleteStudent(req, res) {
     });
 
   } catch (error) {
-    logger.error('Delete student error:', error);
-    
+    logger.error('Delete student error:', {
+      message: error.message,
+      code: error.code,
+      sqlState: error.sqlState,
+      stack: error.stack
+    });
+
     if (error.code === 'ER_ROW_IS_REFERENCED_2') {
       return res.status(400).json({
         success: false,
@@ -1559,9 +1641,92 @@ async function deleteStudent(req, res) {
       });
     }
 
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(500).json({
+        success: false,
+        message: 'Database table not found. Please check database setup.'
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Failed to delete student'
+      message: 'Failed to delete student',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+}
+
+/**
+ * Get student academic data (grades, attendance summary)
+ */
+async function getStudentAcademicData(req, res) {
+  try {
+    const { id } = req.params;
+
+    logger.info(`Getting academic data for student ID: ${id}`);
+
+    // Get recent grades/results
+    const gradesQuery = `
+      SELECT
+        ar.id,
+        ar.marks_obtained as score,
+        a.total_marks as max_score,
+        ar.grade,
+        ar.percentage,
+        ar.remarks,
+        ar.created_at as exam_date,
+        s.name as subject_name,
+        s.code as subject_code,
+        a.type as assessment_type,
+        ay.name as academic_year
+      FROM assessment_results ar
+      LEFT JOIN assessments a ON ar.assessment_id = a.id
+      LEFT JOIN subjects s ON a.subject_id = s.id
+      LEFT JOIN academic_years ay ON a.academic_year_id = ay.id
+      WHERE ar.student_id = ?
+      ORDER BY ar.created_at DESC
+      LIMIT 10
+    `;
+
+    // Get attendance summary
+    const attendanceQuery = `
+      SELECT
+        COUNT(*) as total_days,
+        SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days,
+        SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+        SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_days,
+        ROUND((SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as attendance_percentage
+      FROM attendance
+      WHERE student_id = ?
+      AND attendance_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+    `;
+
+    const [grades, attendanceSummary] = await Promise.all([
+      executeQuery(gradesQuery, [id]),
+      executeQuery(attendanceQuery, [id])
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Student academic data retrieved successfully',
+      data: {
+        recent_grades: grades,
+        attendance_summary: attendanceSummary[0] || {
+          total_days: 0,
+          present_days: 0,
+          absent_days: 0,
+          late_days: 0,
+          attendance_percentage: 0
+        }
+      }
+    });
+
+  } catch (error) {
+    logger.error('Get student academic data error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve student academic data',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 }
@@ -1570,6 +1735,7 @@ module.exports = {
   // Admin/Teacher functions
   getStudents,
   getStudentById,
+  getStudentAcademicData,
   createStudent,
   updateStudent,
   deleteStudent,

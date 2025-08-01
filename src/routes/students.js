@@ -3,6 +3,7 @@ const { body, query, param } = require('express-validator');
 const {
   getStudents,
   getStudentById,
+  getStudentAcademicData,
   createStudent,
   updateStudent,
   deleteStudent
@@ -37,12 +38,32 @@ router.get('/', [
     .withMessage('Search term must be less than 100 characters'),
   query('class_id')
     .optional()
-    .isUUID()
-    .withMessage('Class ID must be a valid UUID'),
+    .custom((value) => {
+      if (!value) return true;
+      // Accept UUID format
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return true;
+      }
+      // Accept integer format
+      if (/^\d+$/.test(String(value))) {
+        return true;
+      }
+      throw new Error('Class ID must be a valid UUID or integer');
+    }),
   query('grade_level_id')
     .optional()
-    .isUUID()
-    .withMessage('Grade level ID must be a valid UUID'),
+    .custom((value) => {
+      if (!value) return true;
+      // Accept UUID format
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return true;
+      }
+      // Accept integer format
+      if (/^\d+$/.test(String(value))) {
+        return true;
+      }
+      throw new Error('Grade level ID must be a valid UUID or integer');
+    }),
   query('status')
     .optional()
     .isIn(['active', 'graduated', 'transferred', 'suspended', 'expelled'])
@@ -120,8 +141,33 @@ router.post('/', [
     .isLength({ max: 50 })
     .withMessage('Admission number must be less than 50 characters'),
   body('currentClassId')
-    .isUUID()
-    .withMessage('Current class ID must be a valid UUID'),
+    .custom((value) => {
+      // Accept UUID, integer, or non-empty string for class ID
+      if (!value) {
+        throw new Error('Current class ID is required');
+      }
+
+      // Convert to string for validation
+      const strValue = String(value).trim();
+
+      if (strValue.length === 0) {
+        throw new Error('Current class ID cannot be empty');
+      }
+
+      // Accept UUID format
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strValue)) {
+        return true;
+      }
+
+      // Accept integer format
+      if (/^\d+$/.test(strValue)) {
+        return true;
+      }
+
+      // Accept any non-empty string as fallback
+      return true;
+    })
+    .withMessage('Current class ID must be a valid identifier'),
   body('academicYearId')
     .optional()
     .isUUID()
@@ -155,10 +201,21 @@ router.post('/', [
  * @access  Private (Admin, Teacher, Student themselves, Parents)
  */
 router.get('/:id', [
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors,
   checkResourceOwnership('id', 'student')
 ], getStudentById);
+
+/**
+ * @route   GET /api/students/:id/academic
+ * @desc    Get student academic data (grades, attendance)
+ * @access  Private (Admin, Teacher, Student themselves, Parents)
+ */
+router.get('/:id/academic', [
+  validationRules.id('id'),
+  handleValidationErrors,
+  checkResourceOwnership('id', 'student')
+], getStudentAcademicData);
 
 /**
  * @route   PUT /api/students/:id
@@ -166,7 +223,7 @@ router.get('/:id', [
  * @access  Private (Admin, Student themselves for limited fields)
  */
 router.put('/:id', [
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   body('firstName')
     .optional()
     .trim()
@@ -220,7 +277,7 @@ router.put('/:id', [
  */
 router.delete('/:id', [
   authorize(['admin']),
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors
 ], deleteStudent);
 
@@ -235,8 +292,17 @@ router.post('/bulk-delete', [
     .isArray({ min: 1 })
     .withMessage('Student IDs must be a non-empty array'),
   body('studentIds.*')
-    .isUUID()
-    .withMessage('Each student ID must be a valid UUID'),
+    .custom((value) => {
+      // Accept UUID format
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return true;
+      }
+      // Accept integer format
+      if (/^\d+$/.test(String(value))) {
+        return true;
+      }
+      throw new Error('Each student ID must be a valid UUID or integer');
+    }),
   handleValidationErrors
 ], async (req, res) => {
   try {
@@ -305,7 +371,7 @@ router.post('/bulk-delete', [
  * @access  Private (Admin, Teacher, Student themselves, Parents)
  */
 router.get('/:id/documents', [
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors,
   checkResourceOwnership('id', 'student')
 ], async (req, res) => {
@@ -569,7 +635,7 @@ async function generateStudentId(connection) {
  */
 router.get('/class/:classId', [
   authorize(['admin', 'teacher']),
-  validationRules.uuid('classId'),
+  validationRules.id('classId'),
   query('page')
     .optional()
     .isInt({ min: 1 })
@@ -767,12 +833,32 @@ router.get('/export', [
     .withMessage('Format must be csv, excel, or pdf'),
   query('class_id')
     .optional()
-    .isUUID()
-    .withMessage('Class ID must be a valid UUID'),
+    .custom((value) => {
+      if (!value) return true;
+      // Accept UUID format
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return true;
+      }
+      // Accept integer format
+      if (/^\d+$/.test(String(value))) {
+        return true;
+      }
+      throw new Error('Class ID must be a valid UUID or integer');
+    }),
   query('grade_level_id')
     .optional()
-    .isUUID()
-    .withMessage('Grade level ID must be a valid UUID'),
+    .custom((value) => {
+      if (!value) return true;
+      // Accept UUID format
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return true;
+      }
+      // Accept integer format
+      if (/^\d+$/.test(String(value))) {
+        return true;
+      }
+      throw new Error('Grade level ID must be a valid UUID or integer');
+    }),
   handleValidationErrors
 ], async (req, res) => {
   try {

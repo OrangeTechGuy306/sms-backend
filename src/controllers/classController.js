@@ -18,7 +18,10 @@ async function getClasses(req, res) {
       sort_order = 'ASC'
     } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    // Validate and parse pagination parameters
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 10;
+    const offset = (pageNum - 1) * limitNum;
     const searchTerm = `%${search}%`;
 
     // Build WHERE clause
@@ -67,9 +70,10 @@ async function getClasses(req, res) {
 
     // Get classes
     const classesQuery = `
-      SELECT 
+      SELECT
         c.id,
         c.name,
+        c.section,
         c.capacity,
         c.room_number,
         c.status,
@@ -77,34 +81,35 @@ async function getClasses(req, res) {
         gl.name as grade_level,
         gl.level_number,
         ay.name as academic_year,
-        CONCAT(t.first_name, ' ', t.last_name) as class_teacher_name,
+        CONCAT(u.first_name, ' ', u.last_name) as class_teacher_name,
         (SELECT COUNT(*) FROM students s WHERE s.current_class_id = c.id AND s.status = 'active') as student_count,
         (SELECT COUNT(DISTINCT ts.subject_id) FROM teacher_subjects ts WHERE ts.class_id = c.id) as subject_count
       FROM classes c
       LEFT JOIN grade_levels gl ON c.grade_level_id = gl.id
       LEFT JOIN academic_years ay ON c.academic_year_id = ay.id
       LEFT JOIN teachers t ON c.class_teacher_id = t.id
+      LEFT JOIN users u ON t.user_id = u.id
       WHERE ${whereClause}
       ORDER BY gl.level_number, c.${sortField} ${sortDirection}
       LIMIT ? OFFSET ?
     `;
 
-    const classes = await executeQuery(classesQuery, [...queryParams, parseInt(limit), offset]);
+    const classes = await executeQuery(classesQuery, [...queryParams, limitNum.toString(), offset.toString()]);
 
     // Calculate pagination info
-    const totalPages = Math.ceil(total / parseInt(limit));
-    const hasNextPage = parseInt(page) < totalPages;
-    const hasPrevPage = parseInt(page) > 1;
+    const totalPages = Math.ceil(total / limitNum);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
 
     res.json({
       success: true,
       data: {
         classes,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: pageNum,
           totalPages,
           totalItems: total,
-          itemsPerPage: parseInt(limit),
+          itemsPerPage: limitNum,
           hasNextPage,
           hasPrevPage
         }
@@ -127,25 +132,19 @@ async function getClassById(req, res) {
   try {
     const { id } = req.params;
 
-    if (!isValidUUID(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid class ID format'
-      });
-    }
-
     const classQuery = `
-      SELECT 
+      SELECT
         c.*,
         gl.name as grade_level,
         gl.level_number,
         ay.name as academic_year,
-        CONCAT(t.first_name, ' ', t.last_name) as class_teacher_name,
+        CONCAT(u.first_name, ' ', u.last_name) as class_teacher_name,
         t.id as class_teacher_id
       FROM classes c
       LEFT JOIN grade_levels gl ON c.grade_level_id = gl.id
       LEFT JOIN academic_years ay ON c.academic_year_id = ay.id
       LEFT JOIN teachers t ON c.class_teacher_id = t.id
+      LEFT JOIN users u ON t.user_id = u.id
       WHERE c.id = ?
     `;
 
@@ -234,6 +233,21 @@ async function createClass(req, res) {
       });
     }
 
+    // Get grade level name for the grade_level field
+    const gradeLevel = await executeQuery(
+      'SELECT name FROM grade_levels WHERE id = ?',
+      [gradeLevelId]
+    );
+
+    if (gradeLevel.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid grade level ID'
+      });
+    }
+
+    const gradeLevelName = gradeLevel[0].name;
+
     // Check if class name already exists for the same grade level and academic year
     const existingClass = await executeQuery(
       'SELECT id FROM classes WHERE name = ? AND grade_level_id = ? AND academic_year_id = ?',
@@ -247,13 +261,13 @@ async function createClass(req, res) {
       });
     }
 
-    // Create class
+    // Create class with both grade_level and grade_level_id
     const insertQuery = `
-      INSERT INTO classes (name, grade_level_id, academic_year_id, class_teacher_id, capacity, room_number, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'active')
+      INSERT INTO classes (name, grade_level, grade_level_id, academic_year_id, class_teacher_id, capacity, room_number, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
     `;
 
-    const result = await executeQuery(insertQuery, [name, gradeLevelId, academicYearId, classTeacherId, capacity, roomNumber]);
+    const result = await executeQuery(insertQuery, [name, gradeLevelName, gradeLevelId, academicYearId, classTeacherId, capacity, roomNumber]);
 
     logger.info(`Class created: ${name} by user ${req.user.id}`);
 
@@ -290,12 +304,7 @@ async function updateClass(req, res) {
     const { id } = req.params;
     const updates = sanitizeInput(req.body);
 
-    if (!isValidUUID(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid class ID format'
-      });
-    }
+
 
     // Check if class exists
     const existingClass = await executeQuery('SELECT id FROM classes WHERE id = ?', [id]);
@@ -311,6 +320,23 @@ async function updateClass(req, res) {
     delete updates.created_at;
     delete updates.updated_at;
 
+    // Validate field lengths to prevent database errors
+    const fieldLimits = {
+      name: 100,
+      grade_level: 20,
+      section: 10,
+      room_number: 20
+    };
+
+    for (const [field, value] of Object.entries(updates)) {
+      if (fieldLimits[field] && typeof value === 'string' && value.length > fieldLimits[field]) {
+        return res.status(400).json({
+          success: false,
+          message: `Field '${field}' exceeds maximum length of ${fieldLimits[field]} characters`
+        });
+      }
+    }
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
         success: false,
@@ -319,11 +345,29 @@ async function updateClass(req, res) {
     }
 
     // Build update query
-    const allowedFields = ['name', 'class_teacher_id', 'capacity', 'room_number', 'status'];
+    const allowedFields = [
+      'name',
+      'grade_level',
+      'section',
+      'academic_year_id',
+      'class_teacher_id',
+      'capacity',
+      'room_number',
+      'description',
+      'status',
+      'grade_level_id'
+    ];
 
     const updateFields = Object.keys(updates)
       .filter(key => allowedFields.includes(key))
       .map(key => `${key} = ?`);
+
+    // Debug: Log what fields are being updated
+    console.log('🔍 Update debug info:');
+    console.log('  - Received updates:', Object.keys(updates));
+    console.log('  - Allowed fields:', allowedFields);
+    console.log('  - Filtered update fields:', Object.keys(updates).filter(key => allowedFields.includes(key)));
+    console.log('  - SQL update fields:', updateFields);
 
     if (updateFields.length === 0) {
       return res.status(400).json({
@@ -344,6 +388,10 @@ async function updateClass(req, res) {
         .map(key => updates[key]),
       id
     ];
+
+    // Debug: Log the final query and parameters
+    console.log('  - Final SQL query:', updateQuery);
+    console.log('  - Query parameters:', queryParams);
 
     await executeQuery(updateQuery, queryParams);
 
@@ -370,12 +418,7 @@ async function deleteClass(req, res) {
   try {
     const { id } = req.params;
 
-    if (!isValidUUID(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid class ID format'
-      });
-    }
+
 
     // Check if class exists
     const existingClass = await executeQuery('SELECT name FROM classes WHERE id = ?', [id]);

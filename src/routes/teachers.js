@@ -129,7 +129,7 @@ router.post('/', [
  * @access  Private (Admin, Teacher themselves)
  */
 router.get('/:id', [
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors,
   checkResourceOwnership('id', 'teacher')
 ], getTeacherById);
@@ -140,7 +140,7 @@ router.get('/:id', [
  * @access  Private (Admin, Teacher themselves for limited fields)
  */
 router.put('/:id', [
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   body('firstName')
     .optional()
     .trim()
@@ -208,7 +208,7 @@ router.put('/:id', [
  */
 router.delete('/:id', [
   authorize(['admin']),
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors
 ], deleteTeacher);
 

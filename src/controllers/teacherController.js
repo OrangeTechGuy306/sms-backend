@@ -1338,7 +1338,11 @@ async function getTeacherById(req, res) {
   try {
     const { id } = req.params;
 
-    if (!isValidUUID(id)) {
+    // Validate ID format (accept both UUID and integer)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isInteger = /^\d+$/.test(id);
+
+    if (!isUUID && !isInteger) {
       return res.status(400).json({
         success: false,
         message: 'Invalid teacher ID format'
@@ -1545,7 +1549,11 @@ async function updateTeacher(req, res) {
     const { id } = req.params;
     const updates = sanitizeInput(req.body);
 
-    if (!isValidUUID(id)) {
+    // Validate ID format (accept both UUID and integer)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isInteger = /^\d+$/.test(id);
+
+    if (!isUUID && !isInteger) {
       return res.status(400).json({
         success: false,
         message: 'Invalid teacher ID format'
@@ -1631,7 +1639,11 @@ async function deleteTeacher(req, res) {
   try {
     const { id } = req.params;
 
-    if (!isValidUUID(id)) {
+    // Validate ID format (accept both UUID and integer)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isInteger = /^\d+$/.test(id);
+
+    if (!isUUID && !isInteger) {
       return res.status(400).json({
         success: false,
         message: 'Invalid teacher ID format'

@@ -85,6 +85,20 @@ const validationRules = {
     .isUUID()
     .withMessage(`${field} must be a valid UUID`),
 
+  // Flexible ID validation (accepts both UUID and integer)
+  id: (field = 'id') => param(field)
+    .custom((value) => {
+      // Accept UUID format
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return true;
+      }
+      // Accept integer format
+      if (/^\d+$/.test(String(value))) {
+        return true;
+      }
+      throw new Error(`${field} must be a valid UUID or integer`);
+    }),
+
   // Student ID validation
   studentId: () => body('studentId')
     .optional()

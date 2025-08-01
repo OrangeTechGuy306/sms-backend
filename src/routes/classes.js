@@ -66,15 +66,95 @@ router.post('/', [
   authorize(['admin']),
   validationRules.className(),
   body('gradeLevelId')
-    .isUUID()
-    .withMessage('Grade level ID must be a valid UUID'),
+    .custom((value) => {
+      // Accept UUID, integer, or non-empty string for grade level ID
+      if (!value) {
+        throw new Error('Grade level ID is required');
+      }
+
+      // Convert to string for validation
+      const strValue = String(value).trim();
+
+      if (strValue.length === 0) {
+        throw new Error('Grade level ID cannot be empty');
+      }
+
+      // Accept UUID format
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strValue)) {
+        return true;
+      }
+
+      // Accept integer format
+      if (/^\d+$/.test(strValue)) {
+        return true;
+      }
+
+      // Accept any non-empty string (for flexibility)
+      if (strValue.length > 0) {
+        return true;
+      }
+
+      throw new Error('Grade level ID must be a valid identifier');
+    }),
   body('academicYearId')
-    .isUUID()
-    .withMessage('Academic year ID must be a valid UUID'),
+    .custom((value) => {
+      // Accept UUID, integer, or non-empty string for academic year ID
+      if (!value && value !== 0) {
+        throw new Error('Academic year ID is required');
+      }
+
+      // Convert to string for validation
+      const strValue = String(value).trim();
+
+      if (strValue.length === 0) {
+        throw new Error('Academic year ID cannot be empty');
+      }
+
+      // Accept UUID format
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strValue)) {
+        return true;
+      }
+
+      // Accept integer format
+      if (/^\d+$/.test(strValue)) {
+        return true;
+      }
+
+      // Accept any non-empty string (for flexibility)
+      if (strValue.length > 0) {
+        return true;
+      }
+
+      throw new Error('Academic year ID must be a valid identifier');
+    }),
   body('classTeacherId')
     .optional()
-    .isUUID()
-    .withMessage('Class teacher ID must be a valid UUID'),
+    .custom((value) => {
+      // If no value provided, it's optional
+      if (!value) {
+        return true;
+      }
+
+      // Convert to string for validation
+      const strValue = String(value).trim();
+
+      // Accept UUID format
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strValue)) {
+        return true;
+      }
+
+      // Accept integer format
+      if (/^\d+$/.test(strValue)) {
+        return true;
+      }
+
+      // Accept any non-empty string (for flexibility)
+      if (strValue.length > 0) {
+        return true;
+      }
+
+      throw new Error('Class teacher ID must be a valid identifier');
+    }),
   body('capacity')
     .optional()
     .isInt({ min: 1, max: 100 })
@@ -93,7 +173,7 @@ router.post('/', [
  * @access  Private (All authenticated users)
  */
 router.get('/:id', [
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors
 ], getClassById);
 
@@ -104,7 +184,7 @@ router.get('/:id', [
  */
 router.put('/:id', [
   authorize(['admin']),
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   body('name')
     .optional()
     .trim()
@@ -137,7 +217,7 @@ router.put('/:id', [
  */
 router.delete('/:id', [
   authorize(['admin']),
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors
 ], deleteClass);
 
@@ -148,7 +228,7 @@ router.delete('/:id', [
  */
 router.get('/:id/students', [
   authorize(['admin', 'teacher']),
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   handleValidationErrors
 ], async (req, res) => {
   try {
@@ -199,7 +279,7 @@ router.get('/:id/students', [
  */
 router.post('/:id/students', [
   authorize(['admin']),
-  validationRules.uuid('id'),
+  validationRules.id('id'),
   body('studentIds')
     .isArray({ min: 1 })
     .withMessage('Student IDs must be a non-empty array'),
@@ -257,8 +337,8 @@ router.post('/:id/students', [
  */
 router.delete('/:id/students/:studentId', [
   authorize(['admin']),
-  validationRules.uuid('id'),
-  validationRules.uuid('studentId'),
+  validationRules.id('id'),
+  validationRules.id('studentId'),
   handleValidationErrors
 ], async (req, res) => {
   try {
